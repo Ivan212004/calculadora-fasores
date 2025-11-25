@@ -1,17 +1,19 @@
 # -*- coding: utf-8 -*-
 """
 PracticNupNup - NumLavPro Versión FINAL (Corregida v5)
-- Añade salto de página en PDF para el fasor.
-- Expone el servidor a la red local (0.0.0.0).
+- FASE 1: Modo Dual (Mallas/Nodos)
+- FASE 2: Ayudante de Componentes (con Z/Y, G, Γ, D, Fracciones)
+- FASE 3: Añadido Modal de Ayuda y Pie de Página
+- FASE 3.1: "Purificación" de UI (Estilo Apple-like)
+- FASE 3.2: Título Centrado y Responsividad Móvil
+### FASE 3.3: Nombre "CircuitSolve" y Nuevo Diseño de Matriz (Gris) ###
 """
 
 # 1. Imports
 from flask import Flask, request, jsonify, render_template_string, send_file
 import numpy as np
 import cmath, math, io, base64, os, time
-# (Se eliminó 'import tempfile')
 from reportlab.lib.pagesizes import A4
-# ########## MODIFICADO: Se añade PageBreak ##########
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
@@ -28,11 +30,33 @@ DEFAULT_SIZE = 7
 PDF_TITLE = "NumLavPro - Reporte de resultados"
 
 # 4. Funciones de Utilidad (Parseo de Complejos)
+# ... (Sin cambios) ...
 def parse_complex(s):
     if s is None: raise ValueError("Celda vacía")
     original = str(s).strip()
     if original == '': raise ValueError("Celda vacía")
     s = original.replace(' ', '').replace('−', '-')
+
+    is_simple_fraction = (
+        '/' in s and 
+        'j' not in s and 
+        '∠' not in s and 
+        ('+' not in s[1:]) and 
+        ('-' not in s[1:])
+    )
+    
+    if is_simple_fraction:
+        try:
+            parts = s.split('/')
+            if len(parts) == 2:
+                num = float(parts[0])
+                den = float(parts[1])
+                if den == 0:
+                    raise ValueError("División por cero en fracción")
+                return num / den
+        except Exception:
+            pass
+
     if '∠' in s:
         try:
             parts = s.split('∠')
@@ -43,9 +67,11 @@ def parse_complex(s):
             return cmath.rect(mag, ang_rad)
         except Exception:
             raise ValueError(f"Formato polar inválido: '{original}'")
+
     s = s.replace('+j', '+1j').replace('-j', '-1j')
     if s == 'j': s = '1j'
     if s == '-j': s = '-1j'
+    
     try:
         return complex(s)
     except Exception:
@@ -65,6 +91,7 @@ def rect_to_polar(z):
     return mag, ang
 
 # 5. Ejemplos de Circuitos
+# ... (Sin cambios) ...
 def example_rlc_series(n=3):
     if n < 2: n = 2
     A = [["0" for _ in range(n)] for __ in range(n)]
@@ -99,6 +126,7 @@ def example_trifasico():
     return A, b, "Ejemplo trifásico"
 
 # 6. Lógica del Solucionador
+# ... (Sin cambios) ...
 def validate_and_build_A_b(A_strings, b_strings):
     if not isinstance(A_strings, list) or not A_strings:
         raise ValueError("Matriz A vacía")
@@ -139,8 +167,12 @@ def solve_system(A, b, method='auto'):
         raise ValueError("Método desconocido")
 
 # 7. Gráfico Fasorial (Matplotlib)
-def make_fasor_png(currents, title="Fasores de corrientes"):
+# ... (Sin cambios) ...
+def make_fasor_png(currents, mode="mallas"):
     I = np.array(currents, dtype=complex)
+    label_pref = "I" if mode == 'mallas' else "V"
+    plot_title = "Fasores de Corriente" if mode == 'mallas' else "Fasores de Voltaje"
+    
     if I.size == 0:
         fig, ax = plt.subplots(figsize=(4,3))
         ax.text(0.5, 0.5, "Sin datos", ha='center', va='center')
@@ -159,8 +191,9 @@ def make_fasor_png(currents, title="Fasores de corrientes"):
             ax.arrow(0, 0, z.real, z.imag, head_width=maxr*0.03, head_length=maxr*0.05,
                      length_includes_head=True, color=colors[idx % len(colors)], linewidth=2)
             mag, ang = rect_to_polar(z)
-            ax.text(z.real*1.05, z.imag*1.05, f"I{idx+1}\n{mag:.3f}∠{ang:.1f}°", fontsize=9)
-        ax.set_title(title)
+            ax.text(z.real*1.05, z.imag*1.05, f"{label_pref}{idx+1}\n{mag:.3f}∠{ang:.1f}°", fontsize=9)
+        
+        ax.set_title(plot_title)
         ax.grid(True, linestyle=':', alpha=0.5)
         plt.tight_layout()
     buf = io.BytesIO()
@@ -170,7 +203,8 @@ def make_fasor_png(currents, title="Fasores de corrientes"):
     return buf
 
 # 8. Generador de PDF (ReportLab)
-def create_pdf_bytes(A_strings, b_strings, x_solution, fasor_png_bytes, A_numpy, b_numpy, title=PDF_TITLE):
+# ... (Sin cambios) ...
+def create_pdf_bytes(A_strings, b_strings, x_solution, fasor_png_bytes, A_numpy, b_numpy, mode="mallas", title=PDF_TITLE):
     buf = io.BytesIO()
     doc = SimpleDocTemplate(buf, pagesize=A4, leftMargin=20*mm, rightMargin=20*mm, topMargin=20*mm, bottomMargin=20*mm)
     styles = getSampleStyleSheet()
@@ -178,22 +212,38 @@ def create_pdf_bytes(A_strings, b_strings, x_solution, fasor_png_bytes, A_numpy,
     if 'Code' not in styles:
         styles.add(ParagraphStyle(name='Code', parent=styles['Normal'], fontName='Courier'))
     
+    if mode == 'nodos':
+        label_mat_a = "Matriz A (Admitancias)"
+        label_vec_b = "Vector b (Fuentes de Corriente)"
+        label_resultados = "Resultados (Voltajes de Nodo)"
+        label_res_pref = "V"
+        label_fasor = "Diagrama Fasorial (Voltajes)"
+        label_proc_pref = "V"
+    else: # default to mallas
+        label_mat_a = "Matriz A (Impedancias)"
+        label_vec_b = "Vector b (Fuentes de Voltaje)"
+        label_resultados = "Resultados (Corrientes)"
+        label_res_pref = "I"
+        label_fasor = "Diagrama Fasorial (Corrientes)"
+        label_proc_pref = "I"
+    
     story = []
-    story.append(Paragraph(title, styles['Title']))
+    ### FASE 3.3 - MODIFICADO ### Título del PDF
+    story.append(Paragraph(f"CircuitSolve - Reporte de {label_resultados.split(' ')[1]}", styles['Title']))
     story.append(Spacer(1, 6*mm))
     story.append(Paragraph(f"Generado: {time.strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
     story.append(Spacer(1, 8*mm))
-    story.append(Paragraph("Matriz A (Impedancias)", styles['Heading3']))
+    story.append(Paragraph(label_mat_a, styles['Heading3']))
     story.append(Table(A_strings, hAlign='LEFT'))
     story.append(Spacer(1, 6*mm))
-    story.append(Paragraph("Vector b (Fuentes)", styles['Heading3']))
+    story.append(Paragraph(label_vec_b, styles['Heading3']))
     story.append(Table([[v] for v in b_strings], hAlign='LEFT'))
     story.append(Spacer(1, 6*mm))
-    story.append(Paragraph("Resultados (Corrientes)", styles['Heading3']))
-    rows = [["Nombre", "Rectangular", "|I| (Mag)", "Fase (°)"]]
+    story.append(Paragraph(label_resultados, styles['Heading3']))
+    rows = [["Nombre", "Rectangular", f"|{label_res_pref}| (Mag)", "Fase (°)"]]
     for i, xi in enumerate(x_solution): 
         mag, ang = rect_to_polar(xi)
-        rows.append([f"I{i+1}", format_rect(xi, precision=6), f"{mag:.6f}", f"{ang:.4f}"])
+        rows.append([f"{label_res_pref}{i+1}", format_rect(xi, precision=6), f"{mag:.6f}", f"{ang:.4f}"])
     story.append(Table(rows, hAlign='LEFT'))
     story.append(Spacer(1, 8*mm))
 
@@ -211,26 +261,25 @@ def create_pdf_bytes(A_strings, b_strings, x_solution, fasor_png_bytes, A_numpy,
         story.append(Paragraph(f"Δ = ({format_rect(a, 3)}) * ({format_rect(d, 3)}) - ({format_rect(b, 3)}) * ({format_rect(c, 3)})", styles['Code']))
         story.append(Paragraph(f"<b>Δ = {format_rect(det_A, 6)}</b>", styles['Code']))
         story.append(Spacer(1, 4*mm))
-        story.append(Paragraph("<b>2. Determinante I1 (Δ1)</b>", styles['Normal']))
+        story.append(Paragraph(f"<b>2. Determinante {label_proc_pref}1 (Δ1)</b>", styles['Normal']))
         story.append(Paragraph("Δ1 = (b[0] * A[1,1]) - (A[0,1] * b[1])", styles['Code']))
         story.append(Paragraph(f"Δ1 = ({format_rect(v1, 3)}) * ({format_rect(d, 3)}) - ({format_rect(b, 3)}) * ({format_rect(v2, 3)})", styles['Code']))
         story.append(Paragraph(f"<b>Δ1 = {format_rect(det_A1, 6)}</b>", styles['Code']))
         story.append(Spacer(1, 4*mm))
-        story.append(Paragraph("<b>3. Determinante I2 (Δ2)</b>", styles['Normal']))
+        story.append(Paragraph(f"<b>3. Determinante {label_proc_pref}2 (Δ2)</b>", styles['Normal']))
         story.append(Paragraph("Δ2 = (A[0,0] * b[1]) - (b[0] * A[1,0])", styles['Code']))
         story.append(Paragraph(f"Δ2 = ({format_rect(a, 3)}) * ({format_rect(v2, 3)}) - ({format_rect(v1, 3)}) * ({format_rect(c, 3)})", styles['Code']))
         story.append(Paragraph(f"<b>Δ2 = {format_rect(det_A2, 6)}</b>", styles['Code']))
         story.append(Spacer(1, 4*mm))
         story.append(Paragraph("<b>4. Soluciones Finales</b>", styles['Normal']))
-        story.append(Paragraph(f"I1 = Δ1 / Δ = {format_rect(x_solution[0], 6)}", styles['Code']))
-        story.append(Paragraph(f"I2 = Δ2 / Δ = {format_rect(x_solution[1], 6)}", styles['Code']))
+        story.append(Paragraph(f"{label_proc_pref}1 = Δ1 / Δ = {format_rect(x_solution[0], 6)}", styles['Code']))
+        story.append(Paragraph(f"{label_proc_pref}2 = Δ2 / Δ = {format_rect(x_solution[1], 6)}", styles['Code']))
         story.append(Spacer(1, 8*mm))
 
     if fasor_png_bytes is not None:
         try:
-            # ########## MODIFICADO: Se añade el PageBreak() ##########
             story.append(PageBreak()) 
-            story.append(Paragraph("Diagrama Fasorial", styles['Heading3']))
+            story.append(Paragraph(label_fasor, styles['Heading3']))
             story.append(Spacer(1, 4*mm))
             fasor_png_bytes.seek(0) 
             img = Image(fasor_png_bytes, width=140*mm, height=140*mm)
@@ -250,59 +299,328 @@ HTML_TEMPLATE = """
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>NumLavPro - PracticNupNup</title>
+    <title>CircuitSolve - Análisis de Circuitos AC</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    
     <style>
-      body { padding: 18px; }
-      .matrix-input { width: 100px; font-family: monospace; }
-      .small-note { font-size:0.9rem; color: #666; }
-      .fasor-img { max-width: 100%; height: auto; border:1px solid #ddd; padding:6px; background:#fff; }
+      /* 1. Fuente y Fondo */
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        background-color: #f5f5f7; /* Gris claro de fondo */
+        padding: 32px 18px; /* Más "aire" vertical */
+      }
+
+      /* 2. Tarjeta principal más suave */
+      .card {
+        border: none; /* Sin borde, solo sombra */
+        border-radius: 20px; /* Bordes más redondeados */
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08); /* Sombra más suave */
+      }
+      
+      /* 3. Tipografía más limpia */
+      .card-title {
+        font-weight: 600;
+        letter-spacing: -0.5px;
+      }
+      h5, .accordion-button {
+        font-weight: 500;
+      }
+
+      /* 4. Botones "Premium" */
+      .btn {
+        border-radius: 12px; /* Bordes redondeados */
+        font-weight: 500;
+        padding: 8px 16px;
+      }
+      .btn-sm {
+        border-radius: 10px;
+      }
+      .btn-primary, .btn-primary.active {
+        --bs-btn-bg: #007aff; /* Azul Apple */
+        --bs-btn-border-color: #007aff;
+        --bs-btn-hover-bg: #0070e0;
+        --bs-btn-hover-border-color: #0070e0;
+        --bs-btn-active-bg: #0062c4;
+        --bs-btn-active-border-color: #0062c4;
+        --bs-btn-focus-shadow-rgb: 38, 132, 255;
+      }
+      .btn-outline-primary {
+        --bs-btn-color: #007aff;
+        --bs-btn-border-color: #007aff;
+        --bs-btn-hover-bg: #007aff;
+        --bs-btn-hover-border-color: #007aff;
+        --bs-btn-active-bg: #007aff;
+        --bs-btn-active-border-color: #007aff;
+      }
+      .btn-group .btn.active {
+          z-index: 2;
+      }
+      
+      /* 5. Acordeón más limpio */
+      .accordion {
+        --bs-accordion-border-radius: 12px;
+        --bs-accordion-inner-border-radius: 12px;
+        --bs-accordion-border-color: #e0e0e0;
+      }
+      .accordion-button {
+        border-radius: 0;
+      }
+      .accordion-button:not(.collapsed) {
+        background-color: #f0f7ff; /* Azul muy claro */
+        color: #000;
+        box-shadow: none;
+      }
+      .accordion-button:focus {
+        box-shadow: none;
+        border-color: transparent;
+      }
+      
+      /* 6. Inputs y Selectores más suaves */
+      .form-control, .form-select {
+        border-radius: 10px;
+        border-color: #d2d2d7;
+        background-color: #fcfcfc;
+      }
+      .form-control:focus, .form-select:focus {
+        border-color: #007aff; /* Azul Apple */
+        box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.25);
+      }
+      .component-helper .form-control-plaintext {
+        background-color: #e8e8ed; /* Un gris un poco más oscuro */
+        border-radius: 8px;
+        font-weight: 500;
+      }
+
+      /* 7. Estilos de la app original (Monospace, etc.) */
+      .matrix-input { 
+        width: 100px; 
+        font-family: monospace;
+        font-size: 0.95rem;
+      }
       #resultsArea {
-        min-height:180px; 
+        min-height: 180px; 
         font-family: Consolas, monospace; 
-        background-color: #f8f9fa;
-        border: 1px solid #dee2e6;
-        border-radius: 4px;
-        padding: 10px;
+        background-color: #f5f5f7; /* Mismo gris que el fondo */
+        border: 1px solid #d2d2d7;
+        border-radius: 12px;
+        padding: 12px;
         white-space: pre;
         overflow-x: auto;
+      }
+      .fasor-img { 
+        max-width: 100%; 
+        height: auto; 
+        border:1px solid #d2d2d7; 
+        padding:6px; 
+        background:#fff; 
+        border-radius: 12px;
+      }
+      
+      /* 8. Estilos que no se han tocado */
+      .small-note { font-size:0.9rem; color: #555; }
+      .unit-select { flex: 0 0 75px; }
+      .copy-btn { flex: 0 0 90px; }
+      .combined-label { font-weight: 500; margin-bottom: 0.25rem; font-size: 0.9rem; }
+      .combined-calc-box { background-color: #fff; border: 1px solid #d2d2d7; border-radius: 12px; padding: 1rem; }
+      .l-gamma-label { width: 40px; font-weight: bold; font-family: monospace; font-size: 1rem; }
+      .help-list { padding-left: 1.2rem; }
+      .help-list code { background-color: #e8e8ed; padding: 2px 5px; border-radius: 4px; font-size: 0.9rem; color: #d63384; }
+      
+      /* 9. Responsividad Móvil y Colores de Matriz */
+      .table-responsive-wrapper {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        border-radius: 12px; /* ### FASE 3.3 - NUEVO ### */
+        overflow: hidden; /* ### FASE 3.3 - NUEVO ### */
+        border: 1px solid #d2d2d7; /* ### FASE 3.3 - NUEVO ### */
+      }
+      
+      /* ### FASE 3.3 - NUEVO ### Colores de Matriz (Gris Claro) */
+      .table-dark {
+        --bs-table-bg: #f5f5f7;
+        --bs-table-border-color: #d2d2d7;
+        --bs-table-color: #212529;
+        --bs-table-striped-bg: #e8e8ed;
+        --bs-table-striped-color: #000;
+      }
+      .table-striped > tbody > tr:nth-of-type(odd) > * {
+        --bs-table-accent-bg: #f0f7ff;
+        color: #000;
+      }
+      .table-bordered {
+          border-color: #d2d2d7;
+      }
+      .table-dark .form-control, .table-striped .form-control {
+          background-color: #fff;
+          border-color: #d2d2d7;
+      }
+      .table-dark .form-control:focus, .table-striped .form-control:focus {
+        border-color: #007aff;
+        box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.25);
       }
     </style>
   </head>
   <body class="bg-light">
     <div class="container">
       <div class="card shadow-sm">
-        <div class="card-body">
-          <h3 class="card-title">NumLavPro — PracticNupNup</h3>
-          <p class="small-note">Introduzca impedancias (ej: 3+0.58j, -1.5j, 120∠0). Máx: {{max_size}}x{{max_size}}</p>
-          <div class="controls row g-2 align-items-center">
+        <div class="card-body p-4 p-md-5">
+          
+          <div class="text-center mb-4">
+            <h3 class="card-title" style="font-weight: 700; font-size: 2.75rem; letter-spacing: -1px;">CircuitSolve</h3>
+            <p class="text-muted" style="font-size: 1.1rem; margin-top: -5px;">Tu Asistente de Análisis de Circuitos AC</p>
+          </div>
+          
+          <div class="mb-3 pt-3">
+              <label class="form-label fw-bold">Modo de Análisis:</label>
+              <div class="btn-group w-100" role="group">
+                <button type="button" id="btnMallas" class="btn btn-primary active" onclick="setMode('mallas')">Mallas (Impedancias)</button>
+                <button type="button" id="btnNodos" class="btn btn-outline-primary" onclick="setMode('nodos')">Nodos (Admitancias)</button>
+              </div>
+          </div>
+          
+          <div class="accordion mb-3" id="componentHelperAccordion">
+            <div class="accordion-item">
+              <h2 class="accordion-header">
+                <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#collapseCombined" aria-expanded="true" aria-controls="collapseCombined" id="labelCombinedAccordion">
+                  Elemento General tipo Serie
+                </button>
+              </h2>
+              <div id="collapseCombined" class="accordion-collapse collapse show" data-bs-parent="#componentHelperAccordion">
+                <div class="accordion-body component-helper">
+                  <div class="input-group input-group-sm mb-3">
+                    <span class="input-group-text">Frecuencia (f ó ω)</span>
+                    <input type="text" class="form-control" value="60" id="freqInput">
+                    <select class="form-select unit-select" id="freqType">
+                      <option value="hz" selected>Hz</option>
+                      <option value="rad">rad/s</option>
+                    </select>
+                  </div>
+                  <div class="combined-calc-box">
+                    <label class="combined-label" id="labelCombinedBox">Componentes en Serie (Modo Mallas)</label>
+                    <div class="input-group input-group-sm">
+                      <span class="input-group-text l-gamma-label" id="labelR_comb_text">R</span>
+                      <input type="text" class="form-control" placeholder="Valor (ej. 10 o 1/15)" id="valR_comb">
+                      <span class="input-group-text unit-select" id="labelR_comb_unit">Ω</span>
+                    </div>
+                    <div class="input-group input-group-sm">
+                      <span class="input-group-text l-gamma-label" id="labelL_comb_text">L/Γ</span>
+                      <input type="text" class="form-control" placeholder="Valor" id="valL_comb">
+                      <select class="form-select unit-select" id="unitL_comb">
+                        <option value="1/L">H</option>
+                        <option value="1e-3/L" selected>mH</option>
+                        <option value="1e-6/L">µH</option>
+                        <option value="1/G">H⁻¹</option>
+                        <option value="1e-3/G">mH⁻¹</option>
+                        <option value="1e3/G">kH⁻¹</option>
+                      </select>
+                    </div>
+                    <div class="input-group input-group-sm">
+                      <span class="input-group-text l-gamma-label" id="labelC_comb_text">C/D</span>
+                      <input type="text" class="form-control" placeholder="Valor (ej. 100 o 1/60)" id="valC_comb">
+                      <select class="form-select unit-select" id="unitC_comb">
+                        <option value="1/C">F</option>
+                        <option value="1e-3/C">mF</option>
+                        <option value="1e-6/C" selected>µF</option>
+                        <option value="1e-9/C">nF</option>
+                        <option value="1e-12/C">pF</option>
+                        <option value="1/D">D</option>
+                        <option value="1e-3/D">mD</option>
+                        <option value__("1e3/D")>kD</option>
+                      </select>
+                    </div>
+                    <div class="input-group input-group-sm mt-3">
+                      <input type="text" readonly class="form-control form-control-plaintext" id="resultCombined" placeholder="Resultado Z/Y">
+                      <button class="btn btn-success" type="button" onclick="copyToClipboard('resultCombined', this)" style="width: 130px;">Copiar Z/Y</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div class="accordion-item">
+              <h2 class="accordion-header">
+                <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseHelper" aria-expanded="false" aria-controls="collapseHelper" id="labelIndividualAccordion">
+                  Componentes del Elemento General tipo Serie
+                </button>
+              </h2>
+              <div id="collapseHelper" class="accordion-collapse collapse" data-bs-parent="#componentHelperAccordion">
+                <div class="accordion-body component-helper">
+                  <label id="labelR" class="form-label small">Resistor (R) / Conductancia (G)</label>
+                  <div class="input-group input-group-sm">
+                    <input type="text" class="form-control" placeholder="Valor (ej. 10 o 1/15)" id="valR">
+                    <span class="input-group-text unit-select" id="labelR_ind_unit">Ω</span>
+                    <input type="text" readonly class="form-control form-control-plaintext" id="resultR">
+                    <button class="btn btn-outline-secondary copy-btn" type="button" onclick="copyToClipboard('resultR', this)">Copiar Z/Y</button>
+                  </div>
+                  
+                  <label id="labelL" class="form-label small mt-2">Inductor (L) / Invertancia (Γ)</label>
+                  <div class="input-group input-group-sm">
+                    <input type="text" class="form-control" placeholder="Valor" id="valL">
+                    <select class="form-select unit-select" id="unitL">
+                        <option value="1/L">H</option>
+                        <option value="1e-3/L" selected>mH</option>
+                        <option value="1e-6/L">µH</option>
+                        <option value="1/G">H⁻¹</option>
+                        <option value="1e-3/G">mH⁻¹</option>
+                        <option value="1e3/G">kH⁻¹</option>
+                    </select>
+                    <input type="text" readonly class="form-control form-control-plaintext" id="resultL">
+                    <button class="btn btn-outline-secondary copy-btn" type="button" onclick="copyToClipboard('resultL', this)">Copiar Z/Y</button>
+                  </div>
+                  
+                  <label id="labelC" class="form-label small mt-2">Capacitor (C) / Daraf (D)</label>
+                  <div class="input-group input-group-sm">
+                    <input type="text" class="form-control" placeholder="Valor (ej. 100 o 1/60)" id="valC">
+                    <select class="form-select unit-select" id="unitC">
+                        <option value="1/C">F</option>
+                        <option value="1e-3/C">mF</option>
+                        <option value="1e-6/C" selected>µF</option>
+                        <option value="1e-9/C">nF</option>
+                        <option value="1e-12/C">pF</option>
+                        <option value="1/D">D</option>
+                        <option value="1e-3/D">mD</option>
+                        <option value="1e3/D">kD</option>
+                    </select>
+                    <input type="text" readonly class="form-control form-control-plaintext" id="resultC">
+                    <button class="btn btn-outline-secondary copy-btn" type="button" onclick="copyToClipboard('resultC', this)">Copiar Z/Y</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <p class="small-note">Introduzca valores (ej: 3+0.58j, -1.5j, 120∠0, 1/15). Máx: {{max_size}}x{{max_size}}</p>
+          
+          <div class="controls row g-3 align-items-md-center">
             <div class="col-auto">
-              <label class="form-label">Tamaño (n x n)</label>
+              <label class="form-label mb-0">Tamaño (n x n)</label>
               <input id="nSize" class="form-control" type="number" value="{{default_size}}" min="1" max="{{max_size}}" style="width:110px;">
             </div>
             <div class="col-auto">
-              <label class="form-label">Método</label>
+              <label class="form-label mb-0">Método</label>
               <select id="methodSelect" class="form-select">
                 <option value="auto">Auto</option>
                 <option value="cramer">Cramer</option>
                 <option value="gauss">Gauss</option>
               </select>
             </div>
-            <div class="col-auto">
-              <label class="form-label">AutoSolve</label><br>
+            <div class="col-auto pt-4">
               <div class="form-check form-switch">
                 <input class="form-check-input" type="checkbox" id="autoSolveSwitch" checked>
-                <label class="form-check-label" for="autoSolveSwitch">ON / OFF</label>
+                <label class="form-check-label" for="autoSolveSwitch">AutoSolve</label>
               </div>
             </div>
-            <div class="col-auto">
-              <label class="form-label">&nbsp;</label><br>
+            <div class="col-12 col-md-auto pt-4 d-flex flex-wrap gap-2">
               <button id="genBtn" class="btn btn-primary">Generar</button>
               <button id="solveBtn" class="btn btn-success">Resolver</button>
               <button id="pdfBtn" class="btn btn-outline-secondary">Exportar PDF</button>
+              
+              <button type="button" class="btn btn-outline-info" data-bs-toggle="modal" data-bs-target="#helpModal">
+                Ayuda
+              </button>
             </div>
-            <div class="col-auto ms-auto text-end">
-              <label class="form-label">Ejemplos</label><br>
+            <div class="col-12 col-md-auto ms-auto text-md-end">
+              <label class="form-label mb-0">Ejemplos</label><br>
               <div class="btn-group" role="group">
                 <button class="btn btn-sm btn-info" onclick="loadExample('rlc')">RLC</button>
                 <button class="btn btn-sm btn-info" onclick="loadExample('ac')">AC</button>
@@ -313,14 +631,14 @@ HTML_TEMPLATE = """
           <form id="matrixForm" class="mt-3">
             <div id="matrixArea"></div>
           </form>
-          <hr>
-          <div class="row">
+          <hr class="my-4">
+          <div class="row g-4">
             <div class="col-md-7">
-              <h5>Resultados</h5>
+              <h5 id="labelResultados">Resultados (Corrientes)</h5>
               <div id="resultsArea"></div>
             </div>
             <div class="col-md-5">
-              <h5>Diagrama fasorial</h5>
+              <h5 id="labelFasor">Diagrama fasorial (Corrientes)</h5>
               <div id="fasorArea" class="text-center">
                 <img id="fasorImg" class="fasor-img" src="/fasor.png?ts=0" alt="Fasor">
               </div>
@@ -328,20 +646,350 @@ HTML_TEMPLATE = """
           </div>
         </div>
       </div>
-      <p class="text-muted mt-2 small">NumLavPro - PracticNupNup · Versión Definitiva (Corregida)</p>
+      <p class="text-muted mt-3 small text-center">CircuitSolve · Creado por Iván</p>
     </div>
-
+    
+    
+    <div class="modal fade" id="helpModal" tabindex="-1" aria-labelledby="helpModalLabel" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content" style="border-radius: 20px;">
+          <div class="modal-header" style="border-bottom: 1px solid #e0e0e0;">
+            <h5 class="modal-title" id="helpModalLabel">Ayuda - CircuitSolve</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body" style="padding: 1.5rem;">
+            
+            <h6>Modo de Análisis</h6>
+            <p>Selecciona el método que estás utilizando:</p>
+            <ul class="help-list">
+              <li><b>Mallas (Impedancias):</b> La herramienta resolverá <code>[Z][I] = [V]</code>.
+                <ul>
+                  <li><b>Matriz A:</b> Debe contener Impedancias (Ω).</li>
+                  <li><b>Vector b:</b> Debe contener Fuentes de Voltaje (V).</li>
+                  <li><b>Resultados:</b> Serán las Corrientes (A) de malla.</li>
+                </ul>
+              </li>
+              <li><b>Nodos (Admitancias):</b> La herramienta resolverá <code>[Y][V] = [I]</code>.
+                <ul>
+                  <li><b>Matriz A:</b> Debe contener Admitancias (S).</li>
+                  <li><b>Vector b:</b> Debe contener Fuentes de Corriente (A).</li>
+                  <li><b>Resultados:</b> Serán los Voltajes (V) de nodo.</li>
+                </ul>
+              </li>
+            </ul>
+            <hr>
+            <h6>Formatos Aceptados</h6>
+            <p>Puedes usar los siguientes formatos en cualquier celda:</p>
+            <ul class="help-list">
+              <li><b>Rectangular:</b> <code>10+5j</code>, <code>-2.5j</code>, <code>15</code></li>
+              <li><b>Polar:</b> <code>120∠-30</code> (el símbolo <code>°</code> es opcional)</li>
+              <li><b>Fracciones:</b> <code>1/15</code>, <code>-3/4</code> (solo para valores reales como R o G)</li>
+            </ul>
+            <hr>
+            <h6>Ayudante de Componentes</h6>
+            <p>El ayudante calcula el valor complejo correcto (Z o Y) basado en el modo de análisis seleccionado.</p>
+            <ul class="help-list">
+              <li><b>R/G:</b> Introduce Resistencia (R) en <code>Ω</code> (Mallas) o Conductancia (G) en <code>S</code> (Nodos).</li>
+              <li><b>L/Γ y C/D:</b> La calculadora es "dual". Puedes introducir el valor normal (L en Henries, C en Farads) o su valor inverso (Γ en H⁻¹, D en Darafs). El programa usará la fórmula correcta automáticamente basado en la unidad que selecciones.</li>
+            </ul>
+          </div>
+          <div class="modal-footer" style="border-top: 1px solid #e0e0e0;">
+            <button type="button" class="btn btn-primary" data-bs-dismiss="modal">Entendido</button>
+          </div>
+        </div>
+      </div>
+    </div>
     <script>
       const maxSize = {{max_size}};
       let debounceTimer = null;
       const debounceDelay = 700;
+      let currentMode = 'mallas';
+
+      function parseJSValue(str) {
+          str = String(str).trim();
+          if (str === "") return 0;
+          if (str.includes('/')) {
+              const parts = str.split('/');
+              if (parts.length === 2) {
+                  const num = parseFloat(parts[0]);
+                  const den = parseFloat(parts[1]);
+                  if (!isNaN(num) && !isNaN(den) && den !== 0) {
+                      return num / den;
+                  }
+              }
+          }
+          const val = parseFloat(str);
+          return isNaN(val) ? 0 : val;
+      }
+
+      function formatComplexJS(real, imag, precision = 6) {
+          const r = parseFloat(real.toFixed(precision));
+          const i = parseFloat(imag.toFixed(precision));
+          if (Math.abs(i) < 1e-12) return r.toString();
+          if (Math.abs(r) < 1e-12) return (i > 0 ? '+' : '') + i.toString() + 'j';
+          const sign = i > 0 ? '+' : '-';
+          return r.toString() + ' ' + sign + ' ' + Math.abs(i).toString() + 'j';
+      }
+
+      function copyToClipboard(elementId, buttonElement) {
+          const textToCopy = document.getElementById(elementId).value;
+          if (!textToCopy) return;
+          if (navigator.clipboard) {
+              navigator.clipboard.writeText(textToCopy).then(() => {
+                  const originalText = buttonElement.textContent;
+                  buttonElement.textContent = '¡Copiado!';
+                  setTimeout(() => {
+                      buttonElement.textContent = originalText;
+                  }, 1500);
+              }).catch(err => console.error('Error al copiar: ', err));
+          }
+      }
+
+      function getUnitParts(unitString) {
+          const parts = unitString.split('/');
+          return {
+              multiplier: parseFloat(parts[0]),
+              type: parts[1] // 'L', 'G' (Gamma), 'C', 'D'
+          };
+      }
+
+      function calculateCombined() {
+          try {
+              const freqVal = parseJSValue(document.getElementById('freqInput').value);
+              const freqType = document.getElementById('freqType').value;
+              if (freqVal <= 0) {
+                  document.getElementById('resultCombined').value = "Freq > 0";
+                  return;
+              }
+              const omega = (freqType === 'hz') ? (2 * Math.PI * freqVal) : freqVal;
+              
+              const R_G_val = parseJSValue(document.getElementById('valR_comb').value);
+              
+              const L_unit_parts = getUnitParts(document.getElementById('unitL_comb').value);
+              const L_val = parseJSValue(document.getElementById('valL_comb').value) * L_unit_parts.multiplier;
+              const L_type = L_unit_parts.type;
+
+              const C_unit_parts = getUnitParts(document.getElementById('unitC_comb').value);
+              const C_val = parseJSValue(document.getElementById('valC_comb').value) * C_unit_parts.multiplier;
+              const C_type = C_unit_parts.type;
+
+              let real = 0.0, imag = 0.0;
+              let imag_L = 0.0, imag_C = 0.0;
+              
+              if (currentMode === 'mallas') {
+                  // Z = R + Z_L + Z_C
+                  real = R_G_val; // Z_R = R
+                  if (omega > 0 && L_val > 0) {
+                      if (L_type === 'L') { imag_L = omega * L_val; } // Z = jωL
+                      else { imag_L = omega / L_val; } // Z = jω/Γ (Invertancia)
+                  }
+                  if (omega > 0 && C_val > 0) {
+                      if (C_type === 'C') { imag_C = -1 / (omega * C_val); } // Z = -j/(ωC)
+                      else { imag_C = -C_val / omega; } // Z = -jD/ω (Daraf)
+                  }
+                  imag = imag_L + imag_C;
+              } else {
+                  // Y = G + Y_L + Y_C
+                  real = R_G_val; // Y_R = G
+                  if (omega > 0 && L_val > 0) {
+                      if (L_type === 'L') { imag_L = -1 / (omega * L_val); } // Y = -j/(ωL)
+                      else { imag_L = -L_val / omega; } // Y = -jΓ/ω (Invertancia)
+                  }
+                  if (omega > 0 && C_val > 0) {
+                      if (C_type === 'C') { imag_C = omega * C_val; } // Y = jωC
+                      else { imag_C = omega / C_val; } // Y = jω/D (Daraf)
+                  }
+                  imag = imag_L + imag_C;
+              }
+              
+              document.getElementById('resultCombined').value = formatComplexJS(real, imag, 8);
+          } catch (e) {
+              console.error("Error al calcular Z/Y combinada: ", e);
+              document.getElementById('resultCombined').value = "Error";
+          }
+      }
+      
+      function calculateComponent(type) {
+          try {
+              const freqVal = parseJSValue(document.getElementById('freqInput').value);
+              const freqType = document.getElementById('freqType').value;
+              
+              if (freqVal <= 0) {
+                  if (type === 'R') document.getElementById('resultR').value = "Freq > 0";
+                  if (type === 'L') document.getElementById('resultL').value = "Freq > 0";
+                  if (type === 'C') document.getElementById('resultC').value = "Freq > 0";
+                  return;
+              }
+              
+              const omega = (freqType === 'hz') ? (2 * Math.PI * freqVal) : freqVal;
+              let real = 0.0, imag = 0.0, val;
+
+              if (type === 'R') {
+                  val = parseJSValue(document.getElementById('valR').value);
+                  real = val; // Z_R = R  ó  Y_R = G.
+                  document.getElementById('resultR').value = formatComplexJS(real, imag);
+
+              } else if (type === 'L') {
+                  const unit_parts = getUnitParts(document.getElementById('unitL').value);
+                  val = parseJSValue(document.getElementById('valL').value) * unit_parts.multiplier;
+                  
+                  if (omega > 0 && val > 0) {
+                      if (currentMode === 'mallas') {
+                          if (unit_parts.type === 'L') { imag = omega * val; } // Z = jωL
+                          else { imag = omega / val; } // Z = jω/Γ
+                      } else {
+                          if (unit_parts.type === 'L') { imag = -1 / (omega * val); } // Y = -j/(ωL)
+                          else { imag = -val / omega; } // Y = -jΓ/ω
+                      }
+                  }
+                  document.getElementById('resultL').value = formatComplexJS(real, imag);
+
+              } else if (type === 'C') {
+                  const unit_parts = getUnitParts(document.getElementById('unitC').value);
+                  val = parseJSValue(document.getElementById('valC').value) * unit_parts.multiplier;
+
+                  if (omega > 0 && val > 0) {
+                      if (currentMode === 'mallas') {
+                          if (unit_parts.type === 'C') { imag = -1 / (omega * val); } // Z = -j/(ωC)
+                          else { imag = -val / omega; } // Z = -jD/ω
+                      } else {
+                          if (unit_parts.type === 'C') { imag = omega * val; } // Y = jωC
+                          else { imag = omega / val; } // Y = jω/D
+                      }
+                  }
+                  document.getElementById('resultC').value = formatComplexJS(real, imag);
+              }
+          } catch(e) {
+              console.error("Error al calcular componente: ", e);
+          }
+      }
+      
+      document.addEventListener('DOMContentLoaded', () => {
+          // ... (Sin cambios) ...
+          document.getElementById('valR').addEventListener('input', () => calculateComponent('R'));
+          document.getElementById('valL').addEventListener('input', () => calculateComponent('L'));
+          document.getElementById('unitL').addEventListener('change', () => calculateComponent('L'));
+          document.getElementById('valC').addEventListener('input', () => calculateComponent('C'));
+          document.getElementById('unitC').addEventListener('change', () => calculateComponent('C'));
+          document.getElementById('valR_comb').addEventListener('input', calculateCombined);
+          document.getElementById('valL_comb').addEventListener('input', calculateCombined);
+          document.getElementById('unitL_comb').addEventListener('change', calculateCombined);
+          document.getElementById('valC_comb').addEventListener('input', calculateCombined);
+          document.getElementById('unitC_comb').addEventListener('change', calculateCombined);
+          const freqInputs = ['freqInput', 'freqType'];
+          freqInputs.forEach(id => {
+              const el = document.getElementById(id);
+              el.addEventListener('input', () => {
+                  calculateComponent('R');
+                  calculateComponent('L');
+                  calculateComponent('C');
+                  calculateCombined();
+              });
+              el.addEventListener('change', () => {
+                  calculateComponent('R');
+                  calculateComponent('L');
+                  calculateComponent('C');
+                  calculateCombined();
+              });
+          });
+      });
+      
+      function setMode(mode) {
+        currentMode = mode;
+        const btnMallas = document.getElementById('btnMallas');
+        const btnNodos = document.getElementById('btnNodos');
+        
+        const labels = {
+            mallas: {
+                matrizA: "Matriz A (Impedancias)",
+                vectorB: "Vector b (Fuentes de Voltaje)",
+                vectorB_pref: "V",
+                resultados: "Resultados (Corrientes)",
+                fasor: "Diagrama fasorial (Corrientes)",
+                labelR: "Resistor (R)",
+                comb_R_text: "R",
+                comb_R_unit: "Ω",
+                ind_R_unit: "Ω",
+                accordionCombined: "Elemento General tipo Serie",
+                accordionIndividual: "Componentes del Elemento General tipo Serie",
+                combinedBoxLabel: "Componentes en Serie"
+            },
+            nodos: {
+                matrizA: "Matriz A (Admitancias)",
+                vectorB: "Vector b (Fuentes de Corriente)",
+                vectorB_pref: "I",
+                resultados: "Resultados (Voltajes de Nodo)",
+                fasor: "Diagrama fasorial (Voltajes)",
+                labelR: "Conductancia (G)",
+                comb_R_text: "G",
+                comb_R_unit: "S",
+                ind_R_unit: "S",
+                accordionCombined: "Elemento General tipo Paralelo",
+                accordionIndividual: "Componentes del Elemento General tipo Paralelo",
+                combinedBoxLabel: "Componentes en Paralelo"
+            }
+        };
+        
+        const modeLabels = labels[mode];
+
+        document.getElementById('labelMatrizA').textContent = modeLabels.matrizA;
+        document.getElementById('labelVectorB').textContent = modeLabels.vectorB;
+        document.getElementById('labelResultados').textContent = modeLabels.resultados;
+        document.getElementById('labelFasor').textContent = modeLabels.fasor;
+        document.getElementById('labelR').textContent = modeLabels.labelR;
+        document.getElementById('labelR_comb_text').textContent = modeLabels.comb_R_text;
+        document.getElementById('labelR_comb_unit').textContent = modeLabels.comb_R_unit;
+        document.getElementById('labelR_ind_unit').textContent = modeLabels.ind_R_unit;
+        document.getElementById('labelL').textContent = "Inductor (L) / Invertancia (Γ)";
+        document.getElementById('labelC').textContent = "Capacitor (C) / Daraf (D)";
+        document.getElementById('labelL_comb_text').textContent = "L/Γ";
+        document.getElementById('labelC_comb_text').textContent = "C/D";
+        
+        document.getElementById('labelCombinedAccordion').textContent = modeLabels.accordionCombined;
+        document.getElementById('labelIndividualAccordion').textContent = modeLabels.accordionIndividual;
+        document.getElementById('labelCombinedBox').textContent = modeLabels.combinedBoxLabel;
+
+
+        const b_inputs = document.querySelectorAll('[name^="b_"]');
+        b_inputs.forEach(function(inp) {
+            const labelCell = inp.closest('tr').querySelector('td:first-child');
+            if (labelCell) {
+                const index = labelCell.textContent.replace (/[^0-9]/g, '');
+                labelCell.textContent = modeLabels.vectorB_pref + index;
+            }
+        });
+
+        if (mode === 'mallas') {
+            btnMallas.classList.add('active', 'btn-primary');
+            btnMallas.classList.remove('btn-outline-primary');
+            btnNodos.classList.remove('active', 'btn-primary');
+            btnNodos.classList.add('btn-outline-primary');
+        } else {
+            btnNodos.classList.add('active', 'btn-primary');
+            btnNodos.classList.remove('btn-outline-primary');
+            btnMallas.classList.remove('active', 'btn-primary');
+            btnMallas.classList.add('btn-outline-primary');
+        }
+        
+        calculateComponent('R');
+        calculateComponent('L');
+        calculateComponent('C');
+        calculateCombined();
+        
+        if (document.getElementById('autoSolveSwitch').checked) {
+            doSolve(false);
+        }
+      }
 
       function makeMatrix(n) {
         const cont = document.getElementById('matrixArea');
         cont.innerHTML = '';
         let html = '';
-        html += '<div class="mb-2"><label class="form-label">Matriz A (impedancias)</label>';
-        html += '<table class="table table-bordered table-striped table-hover table-dark"><tbody>';
+        
+        html += '<div class="mb-2"><label id="labelMatrizA" class="form-label">Matriz A (Impedancias)</label>';
+        html += '<div class="table-responsive-wrapper">';
+        /* ### FASE 3.3 - MODIFICADO ### Quitado table-dark, añadido table-hover */
+        html += '<table class="table table-bordered table-striped table-hover"><tbody>';
         for (let i=0;i<n;i++){
           html += '<tr>';
           for (let j=0;j<n;j++){
@@ -349,18 +997,25 @@ HTML_TEMPLATE = """
           }
           html += '</tr>';
         }
-        html += '</tbody></table></div>';
-        html += '<div class="mb-2"><label class="form-label">Vector b (fuentes)</label>';
+        html += '</tbody></table></div></div>'; 
+        
+        html += '<div class="mb-2"><label id="labelVectorB" class="form-label">Vector b (Fuentes de Voltaje)</label>';
+        html += '<div class="table-responsive-wrapper">';
         html += '<table class="table table-bordered table-striped"><tbody>';
-        for (let i=0;i<n;i++){
+        
+        for (let i=0; i<n; i++){
           html += '<tr><td>V' + (i+1) + '</td><td><input class="form-control matrix-input" name="b_' + i + '" value="0"></td></tr>';
         }
-        html += '</tbody></table></div>';
+        
+        html += '</tbody></table></div></div>';
+        
         cont.innerHTML = html;
         setInputChangeHandlers();
+        setMode(currentMode);
       }
 
       function setInputChangeHandlers() {
+        // ... (Sin cambios) ...
         const inputs = document.querySelectorAll('#matrixArea input');
         inputs.forEach(function(inp) {
           inp.addEventListener('input', function() {
@@ -375,6 +1030,7 @@ HTML_TEMPLATE = """
       }
 
       function collectForm() {
+        // ... (Sin cambios) ...
         const n = parseInt(document.getElementById('nSize').value || 3);
         const A = [];
         const b = [];
@@ -390,10 +1046,11 @@ HTML_TEMPLATE = """
           const el = document.querySelector('[name="b_' + i + '"]');
           b.push(el ? el.value : "");
         }
-        return {matrix: A, vector: b, method: document.getElementById('methodSelect').value};
+        return {matrix: A, vector: b, method: document.getElementById('methodSelect').value, mode: currentMode};
       }
 
       async function loadExample(type) {
+        // ... (Sin cambios) ...
         const n = parseInt(document.getElementById('nSize').value || {{default_size}});
         try {
             const res = await fetch('/example/' + type + '?n=' + n);
@@ -423,6 +1080,7 @@ HTML_TEMPLATE = """
       }
 
       async function doSolve(downloadPdf) {
+        // ... (Sin cambios) ...
         if (downloadPdf === undefined) { downloadPdf = false; }
         const payload = collectForm();
         const out = document.getElementById('resultsArea');
@@ -439,17 +1097,21 @@ HTML_TEMPLATE = """
             }
             const data = await res.json();
             let s = "";
+            const resultPrefix = currentMode === 'mallas' ? 'I' : 'V';
+            const unit = currentMode === 'mallas' ? 'A' : 'V';
             data.result.forEach(function(el, idx) {
-              s += 'I' + (idx+1) + ' = ' + el.rect + ' A    |  |I|=' + el.mag.toFixed(6) + ' A  ∠ ' + el.angle.toFixed(4) + '°\\n';
+              s += resultPrefix + (idx+1) + ' = ' + el.rect + ' ' + unit + '   |  |' + resultPrefix + '|=' + el.mag.toFixed(6) + ' ' + unit + '  ∠ ' + el.angle.toFixed(4) + '°\\n';
             });
-            s += "\\nVerificación (A·I):\\n";
+            const verificationPrefix = currentMode === 'mallas' ? 'Malla' : 'Nodo';
+            s += "\\nVerificación (A·x):\\n";
             data.vcalc.forEach(function(v, i) {
-              s += 'Malla ' + (i+1) + ': ' + v + '\\n';
+              s += verificationPrefix + ' ' + (i+1) + ': ' + v + '\\n';
             });
             out.textContent = s;
             const img = document.getElementById('fasorImg');
             img.src = '/fasor.png?ts=' + Date.now();
             if (downloadPdf) {
+              /* ### FASE 3.3 - MODIFICADO ### */
               window.location.href = '/download_pdf?ts=' + Date.now();
             }
         } catch (e) {
@@ -457,6 +1119,7 @@ HTML_TEMPLATE = """
         }
       }
 
+      // ... (Botones sin cambios) ...
       document.getElementById('genBtn').addEventListener('click', function() {
         const n = Math.min(maxSize, Math.max(1, parseInt(document.getElementById('nSize').value || 3)));
         document.getElementById('nSize').value = n;
@@ -468,6 +1131,10 @@ HTML_TEMPLATE = """
       document.addEventListener('DOMContentLoaded', function() {
         const initialN = {{default_size}};
         makeMatrix(initialN);
+        calculateComponent('R');
+        calculateComponent('L');
+        calculateComponent('C');
+        calculateCombined();
       });
     </script>
   </body>
@@ -475,7 +1142,8 @@ HTML_TEMPLATE = """
 """
 
 # 11. Endpoints (Rutas) de la API de Flask
-LAST = {"A_strings": None, "b_strings": None, "x": None, "fasor_bytes": None, "A_numpy": None, "b_numpy": None}
+# ... (Sin cambios) ...
+LAST = {"A_strings": None, "b_strings": None, "x": None, "fasor_bytes": None, "A_numpy": None, "b_numpy": None, "mode": "mallas"}
 
 @app.route('/')
 def index():
@@ -502,30 +1170,40 @@ def solve_route():
         A_strings = data.get('matrix')
         b_strings = data.get('vector')
         method = data.get('method', 'auto')
+        mode = data.get('mode', 'mallas')
+        
         A, b = validate_and_build_A_b(A_strings, b_strings)
         x = solve_system(A, b, method=method)
+        
         pretty_results = []
         for xi in x:
             rect = format_rect(xi, precision=8)
             mag, ang = rect_to_polar(xi)
             pretty_results.append({"rect": rect, "mag": mag, "angle": ang})
+        
         Vcalc = (A @ x).tolist()
         Vcalc_str = [format_rect(v, precision=6) for v in Vcalc]
-        fasor_buf = make_fasor_png(x, title="Fasores de Corriente")
+        
+        fasor_buf = make_fasor_png(x, mode=mode)
+        
         LAST['A_strings'] = A_strings
         LAST['b_strings'] = b_strings
         LAST['x'] = x
         LAST['fasor_bytes'] = fasor_buf.getvalue()
         LAST['A_numpy'] = A
         LAST['b_numpy'] = b
+        LAST['mode'] = mode
+        
         return jsonify({"result": pretty_results, "vcalc": Vcalc_str})
+    
     except Exception as e:
         return jsonify({"error": str(e)}), 400
 
 @app.route('/fasor.png')
 def fasor_png():
+    mode = LAST.get('mode', 'mallas')
     if LAST.get('fasor_bytes') is None:
-        buf = make_fasor_png(np.array([]), title="Sin datos")
+        buf = make_fasor_png(np.array([]), mode=mode)
         return send_file(buf, mimetype='image/png')
     else:
         return send_file(io.BytesIO(LAST['fasor_bytes']), mimetype='image/png')
@@ -541,13 +1219,15 @@ def download_pdf():
             LAST['x'], 
             io.BytesIO(LAST['fasor_bytes']) if LAST['fasor_bytes'] else None,
             LAST['A_numpy'],
-            LAST['b_numpy']
+            LAST['b_numpy'],
+            LAST.get('mode', 'mallas')
         )
         return send_file(
             pdf_bytes_io, 
             mimetype='application/pdf', 
             as_attachment=True, 
-            download_name='NumLavPro_reporte.pdf'
+            ### FASE 3.3 - MODIFICADO ###
+            download_name='CircuitSolve_Reporte.pdf'
         )
     except Exception as e:
         return f"Error generando PDF: {e}", 500
@@ -555,9 +1235,9 @@ def download_pdf():
 # 12. Punto de Entrada Principal
 if __name__ == "__main__":
     print("================================================================")
-    print("Iniciando NumLavPro / PracticNupNup (Versión Definitiva)")
+    ### FASE 3.3 - MODIFICADO ###
+    print("Iniciando CircuitSolve (Fase 3.3)")
     print(f"Servidor corriendo en http://127.0.0.1:5000 y en tu IP local.")
     print("Presiona CTRL+C para detener.")
     print("================================================================")
-    # ########## MODIFICADO: Se añade host='0.0.0.0' ##########
     app.run(debug=True, port=5000, use_reloader=True, host='0.0.0.0')
