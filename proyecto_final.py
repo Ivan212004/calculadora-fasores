@@ -6,7 +6,10 @@ PracticNupNup - NumLavPro Versión FINAL (Corregida v5)
 - FASE 3: Añadido Modal de Ayuda y Pie de Página
 - FASE 3.1: "Purificación" de UI (Estilo Apple-like)
 - FASE 3.2: Título Centrado y Responsividad Móvil
-### FASE 3.3: Nombre "CircuitSolve" y Nuevo Diseño de Matriz (Gris) ###
+- FASE 3.3: Nombre "CircuitSolve" y Nuevo Diseño de Matriz (Gris)
+- FASE 3.4: Layout A|b, Zoom de Fasor, Botones Dinámicos
+- FASE 3.5: Corregido un typo fatal (value__) en el HTML
+### FASE 3.7: Corregidos typos (value__, ts='D, 4d), DEFAULT_SIZE=2, y Resultados en Columnas ###
 """
 
 # 1. Imports
@@ -26,7 +29,8 @@ app = Flask(__name__)
 
 # 3. Configuración del Programa
 MAX_SIZE = 20
-DEFAULT_SIZE = 7
+### FASE 3.7 - MODIFICADO ###
+DEFAULT_SIZE = 2
 PDF_TITLE = "NumLavPro - Reporte de resultados"
 
 # 4. Funciones de Utilidad (Parseo de Complejos)
@@ -77,10 +81,15 @@ def parse_complex(s):
     except Exception:
         raise ValueError(f"Formato complejo inválido: '{original}'")
 
-def format_rect(z, precision=6):
+### FASE 3.7 - MODIFICADO ### Precisión por defecto a 4
+def format_rect(z, precision=4):
     z = complex(z)
-    if abs(z.imag) < 1e-12: return f"{z.real:+.{precision}f}"
-    if abs(z.real) < 1e-12: return f"{z.imag:+.{precision}f}j"
+    if abs(z.imag) < 1e-12: 
+        if abs(z.real) < 1e-12: return f"{0.0:+.{precision}f}"
+        return f"{z.real:+.{precision}f}"
+    if abs(z.real) < 1e-12: 
+        if abs(z.imag) < 1e-12: return f"{0.0:+.{precision}f}"
+        return f"{z.imag:+.{precision}f}j"
     sign = '+' if z.imag >= 0 else '-'
     return f"{z.real:+.{precision}f} {sign} {abs(z.imag):.{precision}f}j"
 
@@ -228,7 +237,6 @@ def create_pdf_bytes(A_strings, b_strings, x_solution, fasor_png_bytes, A_numpy,
         label_proc_pref = "I"
     
     story = []
-    ### FASE 3.3 - MODIFICADO ### Título del PDF
     story.append(Paragraph(f"CircuitSolve - Reporte de {label_resultados.split(' ')[1]}", styles['Title']))
     story.append(Spacer(1, 6*mm))
     story.append(Paragraph(f"Generado: {time.strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
@@ -243,7 +251,7 @@ def create_pdf_bytes(A_strings, b_strings, x_solution, fasor_png_bytes, A_numpy,
     rows = [["Nombre", "Rectangular", f"|{label_res_pref}| (Mag)", "Fase (°)"]]
     for i, xi in enumerate(x_solution): 
         mag, ang = rect_to_polar(xi)
-        rows.append([f"{label_res_pref}{i+1}", format_rect(xi, precision=6), f"{mag:.6f}", f"{ang:.4f}"])
+        rows.append([f"{label_res_pref}{i+1}", format_rect(xi, precision=4), f"{mag:.4f}", f"{ang:.4f}"])
     story.append(Table(rows, hAlign='LEFT'))
     story.append(Spacer(1, 8*mm))
 
@@ -307,15 +315,15 @@ HTML_TEMPLATE = """
       /* 1. Fuente y Fondo */
       body {
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-        background-color: #f5f5f7; /* Gris claro de fondo */
-        padding: 32px 18px; /* Más "aire" vertical */
+        background-color: #f5f5f7;
+        padding: 32px 18px;
       }
 
       /* 2. Tarjeta principal más suave */
       .card {
-        border: none; /* Sin borde, solo sombra */
-        border-radius: 20px; /* Bordes más redondeados */
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08); /* Sombra más suave */
+        border: none;
+        border-radius: 20px;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
       }
       
       /* 3. Tipografía más limpia */
@@ -323,13 +331,17 @@ HTML_TEMPLATE = """
         font-weight: 600;
         letter-spacing: -0.5px;
       }
-      h5, .accordion-button {
+      h5, h6, .accordion-button {
         font-weight: 500;
+      }
+      h6 {
+          margin-bottom: 0.5rem;
+          color: #333;
       }
 
       /* 4. Botones "Premium" */
       .btn {
-        border-radius: 12px; /* Bordes redondeados */
+        border-radius: 12px;
         font-weight: 500;
         padding: 8px 16px;
       }
@@ -337,7 +349,7 @@ HTML_TEMPLATE = """
         border-radius: 10px;
       }
       .btn-primary, .btn-primary.active {
-        --bs-btn-bg: #007aff; /* Azul Apple */
+        --bs-btn-bg: #007aff;
         --bs-btn-border-color: #007aff;
         --bs-btn-hover-bg: #0070e0;
         --bs-btn-hover-border-color: #0070e0;
@@ -367,7 +379,7 @@ HTML_TEMPLATE = """
         border-radius: 0;
       }
       .accordion-button:not(.collapsed) {
-        background-color: #f0f7ff; /* Azul muy claro */
+        background-color: #f0f7ff;
         color: #000;
         box-shadow: none;
       }
@@ -383,11 +395,11 @@ HTML_TEMPLATE = """
         background-color: #fcfcfc;
       }
       .form-control:focus, .form-select:focus {
-        border-color: #007aff; /* Azul Apple */
+        border-color: #007aff;
         box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.25);
       }
       .component-helper .form-control-plaintext {
-        background-color: #e8e8ed; /* Un gris un poco más oscuro */
+        background-color: #e8e8ed;
         border-radius: 8px;
         font-weight: 500;
       }
@@ -398,16 +410,24 @@ HTML_TEMPLATE = """
         font-family: monospace;
         font-size: 0.95rem;
       }
-      #resultsArea {
-        min-height: 180px; 
+      
+      /* ### FASE 3.7 - MODIFICADO ### Estilos para Cajas de Resultados */
+      .results-box {
         font-family: Consolas, monospace; 
-        background-color: #f5f5f7; /* Mismo gris que el fondo */
+        background-color: #f5f5f7;
         border: 1px solid #d2d2d7;
         border-radius: 12px;
         padding: 12px;
         white-space: pre;
         overflow-x: auto;
+        min-height: 100px;
       }
+      #verificationArea .results-box {
+          min-height: 0;
+          background-color: #fff; /* Fondo blanco para verificación */
+      }
+      /* Fin de Cajas */
+
       .fasor-img { 
         max-width: 100%; 
         height: auto; 
@@ -415,6 +435,7 @@ HTML_TEMPLATE = """
         padding:6px; 
         background:#fff; 
         border-radius: 12px;
+        cursor: zoom-in;
       }
       
       /* 8. Estilos que no se han tocado */
@@ -431,19 +452,11 @@ HTML_TEMPLATE = """
       .table-responsive-wrapper {
         overflow-x: auto;
         -webkit-overflow-scrolling: touch;
-        border-radius: 12px; /* ### FASE 3.3 - NUEVO ### */
-        overflow: hidden; /* ### FASE 3.3 - NUEVO ### */
-        border: 1px solid #d2d2d7; /* ### FASE 3.3 - NUEVO ### */
+        border-radius: 12px; 
+        overflow: hidden; 
+        border: 1px solid #d2d2d7; 
       }
       
-      /* ### FASE 3.3 - NUEVO ### Colores de Matriz (Gris Claro) */
-      .table-dark {
-        --bs-table-bg: #f5f5f7;
-        --bs-table-border-color: #d2d2d7;
-        --bs-table-color: #212529;
-        --bs-table-striped-bg: #e8e8ed;
-        --bs-table-striped-color: #000;
-      }
       .table-striped > tbody > tr:nth-of-type(odd) > * {
         --bs-table-accent-bg: #f0f7ff;
         color: #000;
@@ -451,13 +464,45 @@ HTML_TEMPLATE = """
       .table-bordered {
           border-color: #d2d2d7;
       }
-      .table-dark .form-control, .table-striped .form-control {
+      .table-hover > tbody > tr:hover > * {
+        --bs-table-accent-bg: #e0e0e0;
+      }
+      .form-control.matrix-input {
           background-color: #fff;
           border-color: #d2d2d7;
       }
-      .table-dark .form-control:focus, .table-striped .form-control:focus {
+      .table-striped .form-control.matrix-input {
+          background-color: #fcfcfc;
+      }
+      .form-control.matrix-input:focus {
         border-color: #007aff;
         box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.25);
+      }
+      
+      #verificationAccordion .accordion-button {
+          padding: 0.75rem 1.25rem;
+          background-color: #f5f5f7;
+          font-size: 0.9rem;
+          color: #555;
+          border-radius: 12px; /* Redondeado completo */
+      }
+      #verificationAccordion .accordion-button:not(.collapsed) {
+          background-color: #e8e8ed;
+          border-bottom-left-radius: 0;
+          border-bottom-right-radius: 0;
+      }
+      #verificationAccordion .accordion-body {
+          padding: 0;
+          /* ### FASE 3.7 ### Aplicar estilo de caja a la verificación */
+          background-color: #f5f5f7;
+          border: 1px solid #d2d2d7;
+          border-top: none;
+          border-bottom-left-radius: 12px;
+          border-bottom-right-radius: 12px;
+          padding: 1rem;
+      }
+      #verificationAccordion .accordion-item {
+          border: none; /* Quitar borde del acordeón de verificación */
       }
     </style>
   </head>
@@ -526,12 +571,12 @@ HTML_TEMPLATE = """
                         <option value="1e-12/C">pF</option>
                         <option value="1/D">D</option>
                         <option value="1e-3/D">mD</option>
-                        <option value__("1e3/D")>kD</option>
+                        <option value="1e3/D">kD</option>
                       </select>
                     </div>
                     <div class="input-group input-group-sm mt-3">
                       <input type="text" readonly class="form-control form-control-plaintext" id="resultCombined" placeholder="Resultado Z/Y">
-                      <button class="btn btn-success" type="button" onclick="copyToClipboard('resultCombined', this)" style="width: 130px;">Copiar Z/Y</button>
+                      <button class="btn btn-success copy-btn" type="button" onclick="copyToClipboard('resultCombined', this)" style="width: 130px;" data-label-text="Copiar Z/Y">Copiar Z/Y</button>
                     </div>
                   </div>
                 </div>
@@ -551,7 +596,7 @@ HTML_TEMPLATE = """
                     <input type="text" class="form-control" placeholder="Valor (ej. 10 o 1/15)" id="valR">
                     <span class="input-group-text unit-select" id="labelR_ind_unit">Ω</span>
                     <input type="text" readonly class="form-control form-control-plaintext" id="resultR">
-                    <button class="btn btn-outline-secondary copy-btn" type="button" onclick="copyToClipboard('resultR', this)">Copiar Z/Y</button>
+                    <button class="btn btn-outline-secondary copy-btn" type="button" onclick="copyToClipboard('resultR', this)" data-label-text="Copiar Z/Y">Copiar Z/Y</button>
                   </div>
                   
                   <label id="labelL" class="form-label small mt-2">Inductor (L) / Invertancia (Γ)</label>
@@ -566,7 +611,7 @@ HTML_TEMPLATE = """
                         <option value="1e3/G">kH⁻¹</option>
                     </select>
                     <input type="text" readonly class="form-control form-control-plaintext" id="resultL">
-                    <button class="btn btn-outline-secondary copy-btn" type="button" onclick="copyToClipboard('resultL', this)">Copiar Z/Y</button>
+                    <button class="btn btn-outline-secondary copy-btn" type="button" onclick="copyToClipboard('resultL', this)" data-label-text="Copiar Z/Y">Copiar Z/Y</button>
                   </div>
                   
                   <label id="labelC" class="form-label small mt-2">Capacitor (C) / Daraf (D)</label>
@@ -583,7 +628,7 @@ HTML_TEMPLATE = """
                         <option value="1e3/D">kD</option>
                     </select>
                     <input type="text" readonly class="form-control form-control-plaintext" id="resultC">
-                    <button class="btn btn-outline-secondary copy-btn" type="button" onclick="copyToClipboard('resultC', this)">Copiar Z/Y</button>
+                    <button class="btn btn-outline-secondary copy-btn" type="button" onclick="copyToClipboard('resultC', this)" data-label-text="Copiar Z/Y">Copiar Z/Y</button>
                   </div>
                 </div>
               </div>
@@ -628,19 +673,64 @@ HTML_TEMPLATE = """
               </div>
             </div>
           </div>
+          
           <form id="matrixForm" class="mt-3">
-            <div id="matrixArea"></div>
-          </form>
-          <hr class="my-4">
-          <div class="row g-4">
-            <div class="col-md-7">
-              <h5 id="labelResultados">Resultados (Corrientes)</h5>
-              <div id="resultsArea"></div>
+            <div class="row g-3">
+              <div class="col-lg-8" id="matrixA_col">
+                </div>
+              <div class="col-lg-4" id="matrixB_col">
+                </div>
             </div>
-            <div class="col-md-5">
+          </form>
+          
+          <hr class="my-4">
+          
+          <div class="row g-4">
+            <div class="col-lg-7">
+              <h5 id="labelResultados">Resultados (Corrientes)</h5>
+              
+              <div id="resultsArea" class="row g-3">
+                  <div class="col-md-6">
+                      <h6>Forma Rectangular</h6>
+                      <pre id="resultsRect" class="results-box">...</pre>
+                  </div>
+                  <div class="col-md-6">
+                      <h6>Forma Polar</h6>
+                      <pre id="resultsPolar" class="results-box">...</pre>
+                  </div>
+              </div>
+              
+              <div class="accordion mt-3" id="verificationAccordion">
+                <div class="accordion-item" style="border-radius: 12px;">
+                  <h2 class="accordion-header">
+                    <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseVerification" aria-expanded="false" aria-controls="collapseVerification">
+                      Verificación de Cálculo (A·x)
+                    </button>
+                  </h2>
+                  <div id="collapseVerification" class="accordion-collapse collapse" data-bs-parent="#verificationAccordion">
+                    <div class="accordion-body">
+                      <div id="verificationArea" class="row g-3">
+                          <div class="col-md-6">
+                              <h6>Forma Rectangular</h6>
+                              <pre id="verifRect" class="results-box">...</pre>
+                          </div>
+                          <div class="col-md-6">
+                              <h6>Forma Polar</h6>
+                              <pre id="verifPolar" class="results-box">...</pre>
+                          </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+            </div>
+            <div class="col-lg-5">
               <h5 id="labelFasor">Diagrama fasorial (Corrientes)</h5>
               <div id="fasorArea" class="text-center">
-                <img id="fasorImg" class="fasor-img" src="/fasor.png?ts=0" alt="Fasor">
+                <a href="#" data-bs-toggle="modal" data-bs-target="#fasorModal">
+                  <img id="fasorImg" class="fasor-img" src="/fasor.png?ts=0" alt="Fasor">
+                </a>
               </div>
             </div>
           </div>
@@ -699,6 +789,16 @@ HTML_TEMPLATE = """
         </div>
       </div>
     </div>
+    
+    <div class="modal fade" id="fasorModal" tabindex="-1" aria-labelledby="fasorModalLabel" aria-hidden="true">
+      <div class="modal-dialog modal-lg modal-dialog-centered">
+        <div class="modal-content" style="background-color: transparent; border: none;">
+          <div class="modal-body text-center p-0">
+            <img id="modalFasorImg" src="/fasor.png?ts=0" class="img-fluid" alt="Diagrama Fasorial" style="border-radius: 12px; background: #fff;">
+          </div>
+        </div>
+      </div>
+    </div>
     <script>
       const maxSize = {{max_size}};
       let debounceTimer = null;
@@ -734,9 +834,11 @@ HTML_TEMPLATE = """
       function copyToClipboard(elementId, buttonElement) {
           const textToCopy = document.getElementById(elementId).value;
           if (!textToCopy) return;
+          
+          const originalText = buttonElement.dataset.labelText || buttonElement.textContent;
+          
           if (navigator.clipboard) {
               navigator.clipboard.writeText(textToCopy).then(() => {
-                  const originalText = buttonElement.textContent;
                   buttonElement.textContent = '¡Copiado!';
                   setTimeout(() => {
                       buttonElement.textContent = originalText;
@@ -892,12 +994,20 @@ HTML_TEMPLATE = """
                   calculateCombined();
               });
           });
+          
+          setMode(currentMode);
       });
       
       function setMode(mode) {
         currentMode = mode;
         const btnMallas = document.getElementById('btnMallas');
         const btnNodos = document.getElementById('btnNodos');
+        
+        // Limpiar campos del ayudante
+        const helperInputs = ['valR_comb', 'valL_comb', 'valC_comb', 'valR', 'valL', 'valC'];
+        helperInputs.forEach(id => {
+            document.getElementById(id).value = '';
+        });
         
         const labels = {
             mallas: {
@@ -912,7 +1022,8 @@ HTML_TEMPLATE = """
                 ind_R_unit: "Ω",
                 accordionCombined: "Elemento General tipo Serie",
                 accordionIndividual: "Componentes del Elemento General tipo Serie",
-                combinedBoxLabel: "Componentes en Serie"
+                combinedBoxLabel: "Componentes en Serie",
+                copyBtnLabel: "Copiar Z"
             },
             nodos: {
                 matrizA: "Matriz A (Admitancias)",
@@ -926,7 +1037,8 @@ HTML_TEMPLATE = """
                 ind_R_unit: "S",
                 accordionCombined: "Elemento General tipo Paralelo",
                 accordionIndividual: "Componentes del Elemento General tipo Paralelo",
-                combinedBoxLabel: "Componentes en Paralelo"
+                combinedBoxLabel: "Componentes en Paralelo",
+                copyBtnLabel: "Copiar Y"
             }
         };
         
@@ -949,6 +1061,11 @@ HTML_TEMPLATE = """
         document.getElementById('labelIndividualAccordion').textContent = modeLabels.accordionIndividual;
         document.getElementById('labelCombinedBox').textContent = modeLabels.combinedBoxLabel;
 
+        // Actualizar etiquetas de botones "Copiar"
+        document.querySelectorAll('.copy-btn').forEach(btn => {
+            btn.textContent = modeLabels.copyBtnLabel;
+            btn.dataset.labelText = modeLabels.copyBtnLabel;
+        });
 
         const b_inputs = document.querySelectorAll('[name^="b_"]');
         b_inputs.forEach(function(inp) {
@@ -982,41 +1099,44 @@ HTML_TEMPLATE = """
       }
 
       function makeMatrix(n) {
-        const cont = document.getElementById('matrixArea');
-        cont.innerHTML = '';
-        let html = '';
+        const contA = document.getElementById('matrixA_col');
+        const contB = document.getElementById('matrixB_col');
+        contA.innerHTML = '';
+        contB.innerHTML = '';
         
-        html += '<div class="mb-2"><label id="labelMatrizA" class="form-label">Matriz A (Impedancias)</label>';
-        html += '<div class="table-responsive-wrapper">';
-        /* ### FASE 3.3 - MODIFICADO ### Quitado table-dark, añadido table-hover */
-        html += '<table class="table table-bordered table-striped table-hover"><tbody>';
+        let htmlA = '';
+        htmlA += '<div class="mb-2"><label id="labelMatrizA" class="form-label">Matriz A (Impedancias)</label>';
+        htmlA += '<div class="table-responsive-wrapper">';
+        htmlA += '<table class="table table-bordered table-striped table-hover"><tbody>';
         for (let i=0;i<n;i++){
-          html += '<tr>';
+          htmlA += '<tr>';
           for (let j=0;j<n;j++){
-            html += '<td><input class="form-control matrix-input" name="A_' + i + '_' + j + '" value="0"></td>';
+            htmlA += '<td><input class="form-control matrix-input" name="A_' + i + '_' + j + '" value="0"></td>';
           }
-          html += '</tr>';
+          htmlA += '</tr>';
         }
-        html += '</tbody></table></div></div>'; 
+        htmlA += '</tbody></table></div></div>'; 
         
-        html += '<div class="mb-2"><label id="labelVectorB" class="form-label">Vector b (Fuentes de Voltaje)</label>';
-        html += '<div class="table-responsive-wrapper">';
-        html += '<table class="table table-bordered table-striped"><tbody>';
+        let htmlB = '';
+        htmlB += '<div class="mb-2"><label id="labelVectorB" class="form-label">Vector b (Fuentes de Voltaje)</label>';
+        htmlB += '<div class="table-responsive-wrapper">';
+        htmlB += '<table class="table table-bordered table-striped"><tbody>';
         
         for (let i=0; i<n; i++){
-          html += '<tr><td>V' + (i+1) + '</td><td><input class="form-control matrix-input" name="b_' + i + '" value="0"></td></tr>';
+          htmlB += '<tr><td>V' + (i+1) + '</td><td><input class="form-control matrix-input" name="b_' + i + '" value="0"></td></tr>';
         }
         
-        html += '</tbody></table></div></div>';
+        htmlB += '</tbody></table></div></div>';
         
-        cont.innerHTML = html;
+        contA.innerHTML = htmlA;
+        contB.innerHTML = htmlB;
+        
         setInputChangeHandlers();
         setMode(currentMode);
       }
 
       function setInputChangeHandlers() {
-        // ... (Sin cambios) ...
-        const inputs = document.querySelectorAll('#matrixArea input');
+        const inputs = document.querySelectorAll('#matrixForm input');
         inputs.forEach(function(inp) {
           inp.addEventListener('input', function() {
             if (document.getElementById('autoSolveSwitch').checked) {
@@ -1030,7 +1150,6 @@ HTML_TEMPLATE = """
       }
 
       function collectForm() {
-        // ... (Sin cambios) ...
         const n = parseInt(document.getElementById('nSize').value || 3);
         const A = [];
         const b = [];
@@ -1050,7 +1169,6 @@ HTML_TEMPLATE = """
       }
 
       async function loadExample(type) {
-        // ... (Sin cambios) ...
         const n = parseInt(document.getElementById('nSize').value || {{default_size}});
         try {
             const res = await fetch('/example/' + type + '?n=' + n);
@@ -1079,11 +1197,17 @@ HTML_TEMPLATE = """
         }
       }
 
+      /*** ### FASE 3.7 - MODIFICADO ### Formato de Resultados y Verificación a Pestañas ***/
       async function doSolve(downloadPdf) {
-        // ... (Sin cambios) ...
         if (downloadPdf === undefined) { downloadPdf = false; }
         const payload = collectForm();
-        const out = document.getElementById('resultsArea');
+        
+        // Contenedores de pestañas
+        const outRect = document.getElementById('resultsRect');
+        const outPolar = document.getElementById('resultsPolar');
+        const verifRect = document.getElementById('verifRect');
+        const verifPolar = document.getElementById('verifPolar');
+        
         try {
             const res = await fetch('/solve', {
               method: 'POST',
@@ -1092,30 +1216,58 @@ HTML_TEMPLATE = """
             });
             if (!res.ok) {
               const err = await res.json();
-              out.textContent = "ERROR: " + (err.error || JSON.stringify(err));
+              const errorMsg = "ERROR: " + (err.error || JSON.stringify(err));
+              outRect.textContent = errorMsg;
+              outPolar.textContent = errorMsg;
+              verifRect.textContent = "ERROR";
+              verifPolar.textContent = "ERROR";
               return;
             }
             const data = await res.json();
-            let s = "";
+            
             const resultPrefix = currentMode === 'mallas' ? 'I' : 'V';
             const unit = currentMode === 'mallas' ? 'A' : 'V';
-            data.result.forEach(function(el, idx) {
-              s += resultPrefix + (idx+1) + ' = ' + el.rect + ' ' + unit + '   |  |' + resultPrefix + '|=' + el.mag.toFixed(6) + ' ' + unit + '  ∠ ' + el.angle.toFixed(4) + '°\\n';
-            });
             const verificationPrefix = currentMode === 'mallas' ? 'Malla' : 'Nodo';
-            s += "\\nVerificación (A·x):\\n";
-            data.vcalc.forEach(function(v, i) {
-              s += verificationPrefix + ' ' + (i+1) + ': ' + v + '\\n';
+
+            // Formatear Resultados Principales
+            let s_results_rect = "";
+            let s_results_polar = "";
+            data.result.forEach(function(el, idx) {
+              let name = (resultPrefix + (idx+1)).padEnd(4, ' ');
+              s_results_rect += `${name}= ${el.rect} ${unit}\n`;
+              s_results_polar += `${name}= |${resultPrefix}|=${el.mag.toFixed(4)} ${unit}  ∠ ${el.angle.toFixed(4)}°\n`;
             });
-            out.textContent = s;
+            outRect.textContent = s_results_rect;
+            outPolar.textContent = s_results_polar;
+            
+            // Formatear Verificación
+            let s_verif_rect = "";
+            let s_verif_polar = "";
+            data.vcalc.forEach(function(el, i) {
+              let name = (verificationPrefix + ' ' + (i+1)).padEnd(8, ' ');
+              s_verif_rect += `${name}: ${el.rect}\n`;
+              s_verif_polar += `${name}: ${el.mag.toFixed(4)} ∠ ${el.angle.toFixed(4)}°\n`;
+            });
+            verifRect.textContent = s_verif_rect;
+            verifPolar.textContent = s_verif_polar;
+
+            // Actualizar imágenes
             const img = document.getElementById('fasorImg');
-            img.src = '/fasor.png?ts=' + Date.now();
+            const modalImg = document.getElementById('modalFasorImg');
+            const newSrc = '/fasor.png?ts=' + Date.now();
+            img.src = newSrc;
+            modalImg.src = newSrc;
+            
             if (downloadPdf) {
-              /* ### FASE 3.3 - MODIFICADO ### */
+              /*** ### FASE 3.7 - CORRECCIÓN DE BUG (ts='D) ### ***/
               window.location.href = '/download_pdf?ts=' + Date.now();
             }
         } catch (e) {
-            out.textContent = "ERROR de conexión: " + e.message;
+            const errorMsg = "ERROR de conexión: " + e.message;
+            outRect.textContent = errorMsg;
+            outPolar.textContent = errorMsg;
+            verifRect.textContent = errorMsg;
+            verifPolar.textContent = errorMsg;
         }
       }
 
@@ -1142,7 +1294,6 @@ HTML_TEMPLATE = """
 """
 
 # 11. Endpoints (Rutas) de la API de Flask
-# ... (Sin cambios) ...
 LAST = {"A_strings": None, "b_strings": None, "x": None, "fasor_bytes": None, "A_numpy": None, "b_numpy": None, "mode": "mallas"}
 
 @app.route('/')
@@ -1163,6 +1314,7 @@ def example_route(tipo):
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+ ### FASE 3.7 - MODIFICADO ### Precisión 4 decimales ***/
 @app.route('/solve', methods=['POST'])
 def solve_route():
     try:
@@ -1177,12 +1329,18 @@ def solve_route():
         
         pretty_results = []
         for xi in x:
-            rect = format_rect(xi, precision=8)
+            rect = format_rect(xi, precision=4) # Precisión de 4 decimales
             mag, ang = rect_to_polar(xi)
             pretty_results.append({"rect": rect, "mag": mag, "angle": ang})
         
         Vcalc = (A @ x).tolist()
-        Vcalc_str = [format_rect(v, precision=6) for v in Vcalc]
+        
+        # Crear lista estructurada para la verificación
+        Vcalc_pretty = []
+        for v in Vcalc:
+            rect = format_rect(v, precision=4) # Precisión de 4 decimales
+            mag, ang = rect_to_polar(v)
+            Vcalc_pretty.append({"rect": rect, "mag": mag, "angle": ang})
         
         fasor_buf = make_fasor_png(x, mode=mode)
         
@@ -1194,7 +1352,7 @@ def solve_route():
         LAST['b_numpy'] = b
         LAST['mode'] = mode
         
-        return jsonify({"result": pretty_results, "vcalc": Vcalc_str})
+        return jsonify({"result": pretty_results, "vcalc": Vcalc_pretty})
     
     except Exception as e:
         return jsonify({"error": str(e)}), 400
@@ -1226,7 +1384,6 @@ def download_pdf():
             pdf_bytes_io, 
             mimetype='application/pdf', 
             as_attachment=True, 
-            ### FASE 3.3 - MODIFICADO ###
             download_name='CircuitSolve_Reporte.pdf'
         )
     except Exception as e:
@@ -1235,8 +1392,7 @@ def download_pdf():
 # 12. Punto de Entrada Principal
 if __name__ == "__main__":
     print("================================================================")
-    ### FASE 3.3 - MODIFICADO ###
-    print("Iniciando CircuitSolve (Fase 3.3)")
+    print("Iniciando CircuitSolve (Fase 3.7 - Final)")
     print(f"Servidor corriendo en http://127.0.0.1:5000 y en tu IP local.")
     print("Presiona CTRL+C para detener.")
     print("================================================================")
